@@ -3,6 +3,7 @@ package network
 import (
 	"context"
 	"encoding/json"
+	"strings"
 
 	sriovv1 "github.com/openshift/sriov-network-operator/pkg/apis/sriovnetwork/v1"
 	testclient "github.com/openshift/sriov-tests/pkg/util/client"
@@ -52,6 +53,23 @@ func CreateSriovPolicy(clientSet *testclient.ClientSet, generatedName string, op
 	}
 	err := clientSet.Create(context.Background(), nodePolicy)
 	return err
+}
+
+// GetNicsByPrefix returns a list of pod nic names, filtered by the given
+// nic name prefix ifcPrefix
+func GetNicsByPrefix(pod *k8sv1.Pod, ifcPrefix string) ([]string, error) {
+	var nets []Network
+	nics := []string{}
+	err := json.Unmarshal([]byte(pod.ObjectMeta.Annotations["k8s.v1.cni.cncf.io/networks-status"]), &nets)
+	if err != nil {
+		return nil, err
+	}
+	for _, net := range nets {
+		if strings.Index(net.Interface, ifcPrefix) == 0 {
+			nics = append(nics, net.Interface)
+		}
+	}
+	return nics, nil
 }
 
 // GetSriovNicIPs returns the list of ip addresses related to the given
