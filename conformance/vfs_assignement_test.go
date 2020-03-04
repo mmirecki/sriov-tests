@@ -30,6 +30,12 @@ var _ = Describe("pod", func() {
 		Expect(err).ToNot(HaveOccurred())
 		err = namespaces.Clean(operatorNamespace, namespaces.Test, clients)
 		Expect(err).ToNot(HaveOccurred())
+
+		Eventually(func() bool {
+			res, err := cluster.SriovStable(operatorNamespace, clients)
+			Expect(err).ToNot(HaveOccurred())
+			return res
+		}, 10*time.Minute, 1*time.Second).Should(Equal(true))
 	})
 
 	var _ = Describe("Configuration", func() {
@@ -58,13 +64,20 @@ var _ = Describe("pod", func() {
 					"VfGroups": ContainElement(sriovv1.VfGroup{ResourceName: resourceName, DeviceType: "netdevice", VfRange: "0-4"}),
 				})), "Error SriovNetworkNodeState doesn't contain required elements")
 
+			Eventually(func() bool {
+				res, err := cluster.SriovStable(operatorNamespace, clients)
+				Expect(err).ToNot(HaveOccurred())
+				return res
+			}, 10*time.Minute, 1*time.Second).Should(Equal(true))
+
 			Eventually(func() int64 {
 				testedNode, err := clients.Nodes().Get(testNode, metav1.GetOptions{})
 				Expect(err).ToNot(HaveOccurred())
 				resNum, _ := testedNode.Status.Capacity["openshift.io/testresource"]
 				capacity, _ := resNum.AsInt64()
 				return capacity
-			}, 3*time.Minute, time.Second).Should(Equal(int64(numVfs)), fmt.Sprintf("Error discovered less than %d VFs", numVfs))
+			}, 5*time.Minute, time.Second).Should(Equal(int64(numVfs)), fmt.Sprintf("Error discovered less than %d VFs", numVfs))
+
 			ipam := `{ "type": "host-local","subnet": "10.10.10.0/24","rangeStart": 
 					"10.10.10.171","rangeEnd": "10.10.10.181","routes": [{ "dst": "0.0.0.0/0" }],"gateway": "10.10.10.1"}`
 			err = network.CreateSriovNetwork(clients, networkName, namespaces.Test, operatorNamespace, resourceName, ipam)
