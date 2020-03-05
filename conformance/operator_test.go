@@ -355,8 +355,16 @@ var _ = Describe("operator", func() {
 			BeforeEach(func() {
 				var err error
 				node := sriovInfos.Nodes[0]
-				intf, err = sriovInfos.FindOneSriovDevice(node)
-				Expect(err).ToNot(HaveOccurred())
+
+				// For the context of tests is better to use a Mellanox card
+				// as they support all the virtual function flags
+				// if we don't find a Mellanox card we fall back to any sriov
+				// capability interface and skip the rate limit test.
+				intf, err = sriovInfos.FindOneMellanoxSriovDevice(node)
+				if err != nil {
+					intf, err = sriovInfos.FindOneSriovDevice(node)
+					Expect(err).ToNot(HaveOccurred())
+				}
 
 				config := &sriovv1.SriovNetworkNodePolicy{
 					ObjectMeta: metav1.ObjectMeta{
@@ -538,10 +546,6 @@ var _ = Describe("operator", func() {
 			// 25963
 			Describe("rate limit", func() {
 				It("Should configure the requested rate limit flags under the vf", func() {
-					node := sriovInfos.Nodes[0]
-					intf, err := sriovInfos.FindOneSriovDevice(node)
-					Expect(err).ToNot(HaveOccurred())
-
 					if intf.Driver != "mlx5_core" {
 						// There is an issue with the intel cards both driver i40 and ixgbe
 						// BZ 1772847
@@ -565,7 +569,7 @@ var _ = Describe("operator", func() {
 							MinTxRate:        &minTxRate,
 							NetworkNamespace: namespaces.Test,
 						}}
-					err = clients.Create(context.Background(), sriovNetwork)
+					err := clients.Create(context.Background(), sriovNetwork)
 					Expect(err).ToNot(HaveOccurred())
 
 					netAttDef := &netattdefv1.NetworkAttachmentDefinition{}

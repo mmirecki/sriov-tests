@@ -64,6 +64,21 @@ func (n *EnabledNodes) FindOneSriovDevice(node string) (*sriovv1.InterfaceExt, e
 	return nil, fmt.Errorf("Unable to find sriov devices in node %s", node)
 }
 
+// FindOneMellanoxSriovDevice retrieves a valid sriov device for the given node.
+func (n *EnabledNodes) FindOneMellanoxSriovDevice(node string) (*sriovv1.InterfaceExt, error) {
+	s, ok := n.States[node]
+	if !ok {
+		return nil, fmt.Errorf("Node %s not found", node)
+	}
+	for _, itf := range s.Status.Interfaces {
+		if itf.Driver == "mlx5_core" {
+			return &itf, nil
+		}
+	}
+
+	return nil, fmt.Errorf("Unable to find a mellanox sriov devices in node %s", node)
+}
+
 // SriovStable tells if all the node states are in sync (and the cluster is ready for another round of tests)
 func SriovStable(operatorNamespace string, clients *testclient.ClientSet) (bool, error) {
 	nodeStates, err := clients.SriovNetworkNodeStates(operatorNamespace).List(metav1.ListOptions{})
