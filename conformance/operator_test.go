@@ -37,11 +37,12 @@ var _ = Describe("operator", func() {
 	BeforeEach(func() {
 		err := namespaces.Clean(operatorNamespace, namespaces.Test, clients)
 		Expect(err).ToNot(HaveOccurred())
+
 		Eventually(func() bool {
 			res, err := cluster.SriovStable(operatorNamespace, clients)
 			Expect(err).ToNot(HaveOccurred())
 			return res
-		}, 10*time.Minute, 1*time.Second).Should(Equal(true))
+		}, 10*time.Minute, 1*time.Second).Should(BeTrue())
 	})
 
 	var _ = Describe("Configuration", func() {
@@ -144,16 +145,12 @@ var _ = Describe("operator", func() {
 						"VfGroups": ContainElement(sriovv1.VfGroup{ResourceName: "testresource", DeviceType: "netdevice", VfRange: "2-4"}),
 					})))
 
-				Eventually(func() bool {
-					res, err := cluster.SriovStable(operatorNamespace, clients)
-					Expect(err).ToNot(HaveOccurred())
-					return res
-				}, 10*time.Minute, 1*time.Second).Should(BeTrue())
+				waitForSriovToStable()
 
 				Eventually(func() int64 {
 					testedNode, err := clients.Nodes().Get(node, metav1.GetOptions{})
 					Expect(err).ToNot(HaveOccurred())
-					resNum, _ := testedNode.Status.Capacity["openshift.io/testresource"]
+					resNum, _ := testedNode.Status.Allocatable["openshift.io/testresource"]
 					capacity, _ := resNum.AsInt64()
 					return capacity
 				}, 3*time.Minute, time.Second).Should(Equal(int64(3)))
@@ -208,11 +205,11 @@ var _ = Describe("operator", func() {
 				Eventually(func() map[string]int64 {
 					testedNode, err := clients.Nodes().Get(node, metav1.GetOptions{})
 					Expect(err).ToNot(HaveOccurred())
-					resNum, _ := testedNode.Status.Capacity["openshift.io/testresource"]
+					resNum, _ := testedNode.Status.Allocatable["openshift.io/testresource"]
 					capacity, _ := resNum.AsInt64()
 					res := make(map[string]int64)
 					res["openshift.io/testresource"] = capacity
-					resNum, _ = testedNode.Status.Capacity["openshift.io/testresource1"]
+					resNum, _ = testedNode.Status.Allocatable["openshift.io/testresource1"]
 					capacity, _ = resNum.AsInt64()
 					res["openshift.io/testresource1"] = capacity
 					return res
@@ -400,11 +397,7 @@ var _ = Describe("operator", func() {
 						"NumVfs": Equal(numVfs),
 					})))
 
-				Eventually(func() bool {
-					res, err := cluster.SriovStable(operatorNamespace, clients)
-					Expect(err).ToNot(HaveOccurred())
-					return res
-				}, 10*time.Minute, 1*time.Second).Should(BeTrue())
+				waitForSriovToStable()
 
 				debugPod = pod.DefineWithHostNetwork(node)
 				err = clients.Create(context.Background(), debugPod)
@@ -655,16 +648,12 @@ var _ = Describe("operator", func() {
 				err = clients.Create(context.Background(), nodePolicy)
 				Expect(err).ToNot(HaveOccurred())
 
-				Eventually(func() bool {
-					stable, err := cluster.SriovStable(operatorNamespace, clients)
-					Expect(err).ToNot(HaveOccurred())
-					return stable
-				}, 10*time.Minute, 1*time.Second).Should(Equal(true))
+				waitForSriovToStable()
 
 				Eventually(func() int64 {
 					testedNode, err := clients.Nodes().Get(node, metav1.GetOptions{})
 					Expect(err).ToNot(HaveOccurred())
-					resNum, _ := testedNode.Status.Capacity["openshift.io/apivolresource"]
+					resNum, _ := testedNode.Status.Allocatable["openshift.io/apivolresource"]
 					capacity, _ := resNum.AsInt64()
 					return capacity
 				}, 3*time.Minute, time.Second).Should(Equal(int64(5)))
@@ -734,9 +723,7 @@ var _ = Describe("operator", func() {
 					err = network.CreateSriovNetwork(clients, sriovNetworkName, namespaces.Test, operatorNamespace, resourceName, ipam)
 					Expect(err).ToNot(HaveOccurred())
 
-					pod := createTestPod([]string{"/bin/bash", "-c", "--"},
-						[]string{"while true; do sleep 300000; done;"},
-						testNode, sriovNetworkName, []string{sriovNetworkName, sriovNetworkName})
+					pod := createTestPod(testNode, []string{sriovNetworkName, sriovNetworkName})
 					nics, err := network.GetNicsByPrefix(pod, "net")
 					Expect(err).ToNot(HaveOccurred())
 					Expect(len(nics)).To(Equal(2), "No sriov network interfaces found.")
@@ -761,9 +748,7 @@ var _ = Describe("operator", func() {
 						return clients.Get(context.Background(), runtimeclient.ObjectKey{Name: ipv6NetworkName, Namespace: namespaces.Test}, netAttDef)
 					}, 10*time.Second, 1*time.Second).ShouldNot(HaveOccurred())
 
-					pod := createTestPod([]string{"/bin/bash", "-c", "--"},
-						[]string{"while true; do sleep 300000; done;"},
-						testNode, ipv6NetworkName, []string{ipv6NetworkName})
+					pod := createTestPod(testNode, []string{ipv6NetworkName})
 					ips, err := network.GetSriovNicIPs(pod, "net1")
 					Expect(err).ToNot(HaveOccurred())
 					Expect(ips).NotTo(BeNil(), "No sriov network interface found.")
@@ -804,17 +789,7 @@ var _ = Describe("operator", func() {
 				err = clients.Create(context.Background(), mtuPolicy)
 				Expect(err).ToNot(HaveOccurred())
 
-				Eventually(func() bool {
-					stable, err := cluster.SriovStable(operatorNamespace, clients)
-					Expect(err).ToNot(HaveOccurred())
-					return stable
-				}, 2*time.Minute, 1*time.Second).Should(Equal(false))
-
-				Eventually(func() bool {
-					stable, err := cluster.SriovStable(operatorNamespace, clients)
-					Expect(err).ToNot(HaveOccurred())
-					return stable
-				}, 10*time.Minute, 1*time.Second).Should(Equal(true))
+				waitForSriovToStable()
 
 				err = network.CreateSriovNetwork(clients,
 					"mtuvolnetwork",
@@ -925,22 +900,18 @@ func daemonsScheduledOnNodes(selector string) bool {
 func createSriovPolicy(sriovDevice string, testNode string, numVfs int, resourceName string) {
 	err := network.CreateSriovPolicy(clients, "test-policy-", operatorNamespace, sriovDevice, testNode, numVfs, resourceName)
 	Expect(err).ToNot(HaveOccurred())
-	Eventually(func() bool {
-		stable, err := cluster.SriovStable(operatorNamespace, clients)
-		Expect(err).ToNot(HaveOccurred())
-		return stable
-	}, 10*time.Minute, 1*time.Second).Should(Equal(true))
+	waitForSriovToStable()
 
 	Eventually(func() int64 {
 		testedNode, err := clients.Nodes().Get(testNode, metav1.GetOptions{})
 		Expect(err).ToNot(HaveOccurred())
-		resNum, _ := testedNode.Status.Capacity[corev1.ResourceName("openshift.io/"+resourceName)]
+		resNum, _ := testedNode.Status.Allocatable[corev1.ResourceName("openshift.io/"+resourceName)]
 		capacity, _ := resNum.AsInt64()
 		return capacity
 	}, 10*time.Minute, time.Second).Should(Equal(int64(numVfs)))
 }
 
-func createTestPod(command []string, args []string, node string, sriovNetworkAttachment string, networks []string) *k8sv1.Pod {
+func createTestPod(node string, networks []string) *k8sv1.Pod {
 	podDefinition := pod.RedefineWithNodeSelector(
 		pod.DefineWithNetworks(networks),
 		node,
@@ -976,4 +947,18 @@ func pingPod(ip string, nodeSelector string, sriovNetworkAttachment string) {
 		Expect(err).ToNot(HaveOccurred())
 		return runningPod.Status.Phase
 	}, 3*time.Minute, 1*time.Second).Should(Equal(k8sv1.PodSucceeded))
+}
+
+func waitForSriovToStable() {
+	Eventually(func() bool {
+		res, err := cluster.SriovStable(operatorNamespace, clients)
+		Expect(err).ToNot(HaveOccurred())
+		return res
+	}, 2*time.Minute, 5*time.Second).Should(BeFalse())
+
+	Eventually(func() bool {
+		res, err := cluster.SriovStable(operatorNamespace, clients)
+		Expect(err).ToNot(HaveOccurred())
+		return res
+	}, 10*time.Minute, 1*time.Second).Should(BeTrue())
 }

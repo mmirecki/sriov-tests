@@ -30,12 +30,11 @@ var _ = Describe("pod", func() {
 		Expect(err).ToNot(HaveOccurred())
 		err = namespaces.Clean(operatorNamespace, namespaces.Test, clients)
 		Expect(err).ToNot(HaveOccurred())
-
 		Eventually(func() bool {
 			res, err := cluster.SriovStable(operatorNamespace, clients)
 			Expect(err).ToNot(HaveOccurred())
 			return res
-		}, 10*time.Minute, 1*time.Second).Should(Equal(true))
+		}, 10*time.Minute, 1*time.Second).Should(BeTrue())
 	})
 
 	var _ = Describe("Configuration", func() {
@@ -64,11 +63,7 @@ var _ = Describe("pod", func() {
 					"VfGroups": ContainElement(sriovv1.VfGroup{ResourceName: resourceName, DeviceType: "netdevice", VfRange: "0-4"}),
 				})), "Error SriovNetworkNodeState doesn't contain required elements")
 
-			Eventually(func() bool {
-				res, err := cluster.SriovStable(operatorNamespace, clients)
-				Expect(err).ToNot(HaveOccurred())
-				return res
-			}, 10*time.Minute, 1*time.Second).Should(Equal(true))
+			waitForSriovToStable()
 
 			Eventually(func() int64 {
 				testedNode, err := clients.Nodes().Get(testNode, metav1.GetOptions{})
