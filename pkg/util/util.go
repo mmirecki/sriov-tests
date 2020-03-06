@@ -175,7 +175,7 @@ func GenerateExpectedNetConfig(cr *sriovnetworkv1.SriovNetwork) string {
 
 	vlanQoS := cr.Spec.VlanQoS
 
-	return fmt.Sprintf(`{ "cniVersion":"0.3.1", "name":"sriov-net", "type":"sriov", "vlan":%d,%s%s%s"vlanQoS":%d,"ipam":%s }`, cr.Spec.Vlan, spoofchk, trust, state, vlanQoS, cr.Spec.IPAM)
+	return fmt.Sprintf(`{ "cniVersion":"0.3.1", "name":"%s", "type":"sriov", "vlan":%d,%s%s%s"vlanQoS":%d,"ipam":%s }`, cr.GetName(), cr.Spec.Vlan, spoofchk, trust, state, vlanQoS, cr.Spec.IPAM)
 }
 
 func ValidateDevicePluginConfig(nps []*sriovnetworkv1.SriovNetworkNodePolicy, rawConfig string) error {
