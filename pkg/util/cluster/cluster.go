@@ -100,8 +100,10 @@ func stateStable(state sriovv1.SriovNetworkNodeState) bool {
 	switch state.Status.SyncStatus {
 	case "Succeeded":
 		return true
+	// When the config daemon is restarted the status will be empty
+	// This doesn't mean the config was applied
 	case "":
-		return true
+		return false
 	}
 	return false
 }
@@ -114,4 +116,19 @@ func isDriverSupported(driver string) bool {
 	}
 
 	return false
+}
+
+func IsClusterStable(clients *testclient.ClientSet) (bool, error) {
+	nodes, err := clients.Nodes().List(metav1.ListOptions{})
+	if err != nil {
+		return false, err
+	}
+
+	for _, node := range nodes.Items {
+		if node.Spec.Unschedulable {
+			return false, nil
+		}
+	}
+
+	return true, nil
 }
