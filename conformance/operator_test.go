@@ -722,7 +722,7 @@ var _ = Describe("operator", func() {
 					createSriovPolicy(sriovDevice.Name, testNode, 5, resourceName)
 
 					ipam := `{"type": "host-local","ranges": [[{"subnet": "1.1.1.0/24"}]],"dataDir": "/run/my-orchestrator/container-ipam-state"}`
-					err = network.CreateSriovNetwork(clients, sriovNetworkName, namespaces.Test, operatorNamespace, resourceName, ipam)
+					err = network.CreateSriovNetwork(clients, sriovDevice, sriovNetworkName, namespaces.Test, operatorNamespace, resourceName, ipam)
 					Expect(err).ToNot(HaveOccurred())
 
 					pod := createTestPod(testNode, []string{sriovNetworkName, sriovNetworkName})
@@ -743,7 +743,7 @@ var _ = Describe("operator", func() {
 					createSriovPolicy(sriovDevice.Name, testNode, 5, resourceName)
 
 					ipam := `{"type": "host-local","ranges": [[{"subnet": "3ffe:ffff:0:01ff::/64"}]],"dataDir": "/run/my-orchestrator/container-ipam-state"}`
-					err = network.CreateSriovNetwork(clients, ipv6NetworkName, namespaces.Test, operatorNamespace, resourceName, ipam)
+					err = network.CreateSriovNetwork(clients, sriovDevice, ipv6NetworkName, namespaces.Test, operatorNamespace, resourceName, ipam)
 					Expect(err).ToNot(HaveOccurred())
 					Eventually(func() error {
 						netAttDef := &netattdefv1.NetworkAttachmentDefinition{}
@@ -794,6 +794,7 @@ var _ = Describe("operator", func() {
 				waitForSRIOVStable()
 
 				err = network.CreateSriovNetwork(clients,
+					intf,
 					"mtuvolnetwork",
 					namespaces.Test,
 					operatorNamespace,

@@ -17,7 +17,7 @@ type Network struct {
 	Ips       []string
 }
 
-func CreateSriovNetwork(clientSet *testclient.ClientSet, name string, namespace string, operatorNamespace string, resourceName string, ipam string) error {
+func CreateSriovNetwork(clientSet *testclient.ClientSet, intf *sriovv1.InterfaceExt, name string, namespace string, operatorNamespace string, resourceName string, ipam string) error {
 	sriovNetwork := &sriovv1.SriovNetwork{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
@@ -28,6 +28,12 @@ func CreateSriovNetwork(clientSet *testclient.ClientSet, name string, namespace 
 			IPAM:             ipam,
 			NetworkNamespace: namespace,
 		}}
+
+	// We need this to be able to run the connectivity checks on Mellanox cards
+	if intf.DeviceID == "1015" {
+		sriovNetwork.Spec.SpoofChk = "off"
+	}
+
 	err := clientSet.Create(context.Background(), sriovNetwork)
 	return err
 }

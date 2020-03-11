@@ -82,7 +82,7 @@ var _ = Describe("pod", func() {
 
 			ipam := `{ "type": "host-local","subnet": "10.10.10.0/24","rangeStart": 
 					"10.10.10.171","rangeEnd": "10.10.10.181","routes": [{ "dst": "0.0.0.0/0" }],"gateway": "10.10.10.1"}`
-			err = network.CreateSriovNetwork(clients, networkName, namespaces.Test, operatorNamespace, resourceName, ipam)
+			err = network.CreateSriovNetwork(clients, intf, networkName, namespaces.Test, operatorNamespace, resourceName, ipam)
 			Expect(err).ToNot(HaveOccurred(), "Error to create SriovNetwork")
 
 			Eventually(func() error {
