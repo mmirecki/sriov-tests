@@ -65,6 +65,21 @@ func (n *EnabledNodes) FindOneSriovDevice(node string) (*sriovv1.InterfaceExt, e
 	return nil, fmt.Errorf("Unable to find sriov devices in node %s", node)
 }
 
+// FindSriovDevices retrieves all valid sriov devices for the given node.
+func (n *EnabledNodes) FindSriovDevices(node string) ([]*sriovv1.InterfaceExt, error) {
+	devices := []*sriovv1.InterfaceExt{}
+	s, ok := n.States[node]
+	if !ok {
+		return nil, fmt.Errorf("Node %s not found", node)
+	}
+	for _, itf := range s.Status.Interfaces {
+		if isDriverSupported(itf.Driver) {
+			devices = append(devices, &itf)
+		}
+	}
+	return devices, nil
+}
+
 // FindOneMellanoxSriovDevice retrieves a valid sriov device for the given node.
 func (n *EnabledNodes) FindOneMellanoxSriovDevice(node string) (*sriovv1.InterfaceExt, error) {
 	s, ok := n.States[node]

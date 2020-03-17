@@ -727,7 +727,6 @@ var _ = Describe("operator", func() {
 					ipam := `{"type": "host-local","ranges": [[{"subnet": "1.1.1.0/24"}]],"dataDir": "/run/my-orchestrator/container-ipam-state"}`
 					err = network.CreateSriovNetwork(clients, sriovDevice, sriovNetworkName, namespaces.Test, operatorNamespace, resourceName, ipam)
 					Expect(err).ToNot(HaveOccurred())
-
 					pod := createTestPod(testNode, []string{sriovNetworkName, sriovNetworkName})
 					nics, err := network.GetNicsByPrefix(pod, "net")
 					Expect(err).ToNot(HaveOccurred())
@@ -847,8 +846,110 @@ var _ = Describe("operator", func() {
 			})
 		})
 
+		Context("unhealthyVfs", func() {
+			// 25834
+			It(" Should not be able to create pod successfully if there are only unhealthy vfs", func() {
+				resourceName := "sriovnic"
+				sriovNetworkName := "sriovnetwork"
+				testNode := sriovInfos.Nodes[0]
+
+				sriovDevices, err := sriovInfos.FindSriovDevices(testNode)
+				Expect(err).ToNot(HaveOccurred())
+				unusedSriovDevices, err := findUnusedSriovDevices(testNode, sriovDevices)
+				Expect(err).ToNot(HaveOccurred())
+				if len(unusedSriovDevices) == 0 {
+					Skip("No unused active sriov devices found. " +
+						"Sriov devices either not present, used as default route or used for as bridge slave. " +
+						"Executing the test could endanger node connectivity.")
+				}
+				sriovDevice := unusedSriovDevices[0]
+
+				createSriovPolicy(sriovDevice.Name, testNode, 5, resourceName)
+				ipam := `{"type": "host-local","ranges": [[{"subnet": "3ffe:ffff:0:01ff::/64"}]],"dataDir": "/run/my-orchestrator/container-ipam-state"}`
+				err = network.CreateSriovNetwork(clients, sriovNetworkName, namespaces.Test, operatorNamespace, resourceName, ipam)
+				Expect(err).ToNot(HaveOccurred())
+				Eventually(func() error {
+					netAttDef := &netattdefv1.NetworkAttachmentDefinition{}
+					return clients.Get(context.Background(), runtimeclient.ObjectKey{Name: sriovNetworkName, Namespace: namespaces.Test}, netAttDef)
+				}, 3*time.Second, 1*time.Second).ShouldNot(HaveOccurred())
+
+				defer changeNodeInterfaceState(testNode, sriovDevice.Name, true)
+				changeNodeInterfaceState(testNode, sriovDevice.Name, false)
+
+				createUnschedulableTestPod(testNode, []string{sriovNetworkName}, resourceName)
+			})
+		})
 	})
 })
+
+func changeNodeInterfaceState(testNode string, ifcName string, enable bool) {
+	state := "up"
+	if !enable {
+		state = "down"
+	}
+	podDefinition := pod.RedefineAsPrivileged(
+		pod.RedefineWithRestartPolicy(
+			pod.RedefineWithCommand(
+				pod.DefineWithHostNetwork(testNode),
+				[]string{"ip", "link", "set", "dev", ifcName, state}, []string{},
+			),
+			k8sv1.RestartPolicyNever,
+		),
+	)
+	createdPod, err := clients.Pods(namespaces.Test).Create(podDefinition)
+	Expect(err).ToNot(HaveOccurred())
+	Eventually(func() k8sv1.PodPhase {
+		runningPod, err := clients.Pods(namespaces.Test).Get(createdPod.Name, metav1.GetOptions{})
+		Expect(err).ToNot(HaveOccurred())
+		return runningPod.Status.Phase
+	}, 3*time.Minute, 1*time.Second).Should(Equal(k8sv1.PodSucceeded))
+}
+
+func findUnusedSriovDevices(testNode string, sriovDevices []*sriovv1.InterfaceExt) ([]*sriovv1.InterfaceExt, error) {
+	createdPod := createCustomTestPod(testNode, []string{}, true)
+	filteredDevices := []*sriovv1.InterfaceExt{}
+	for _, device := range sriovDevices {
+		stdout, _, err := pod.ExecCommand(clients, createdPod, "ip", "route")
+		Expect(err).ToNot(HaveOccurred())
+		lines := strings.Split(stdout, "\n")
+		if len(lines) > 0 {
+			if strings.Index(lines[0], "default") == 0 && strings.Index(lines[0], "dev "+device.Name) > 0 {
+				continue // The interface is a default route
+			}
+		}
+		stdout, _, err = pod.ExecCommand(clients, createdPod, "ip", "link", "show", device.Name)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(len(stdout)).Should(Not(Equal(0)), "Unable to query link state")
+		if strings.Index(stdout, "state DOWN") > 0 {
+			continue // The interface is not active
+		}
+
+		isInterfaceSlave, err := isInterfaceSlave(createdPod, device.Name)
+		Expect(err).ToNot(HaveOccurred())
+		if isInterfaceSlave {
+			continue
+		}
+		filteredDevices = append(filteredDevices, device)
+	}
+	return filteredDevices, nil
+}
+
+func isInterfaceSlave(ifcPod *k8sv1.Pod, ifcName string) (bool, error) {
+	stdout, _, err := pod.ExecCommand(clients, ifcPod, "bridge", "link")
+	if err != nil {
+		return false, err
+	}
+	lines := strings.Split(stdout, "\n")
+	for _, line := range lines {
+		parts := strings.Split(line, " ")
+		if len(parts) > 1 && parts[1] == ifcName {
+			if strings.Index(line, "master") != -1 { // Ignore hw bridges
+				return false, nil // The interface is part of a bridge (it has a master)
+			}
+		}
+	}
+	return false, nil
+}
 
 // podVFIndexInHost retrieves the vf index on the host network namespace related to the given
 // interface that was passed to the pod, using the name in the pod's namespace.
@@ -947,13 +1048,51 @@ func createSriovPolicy(sriovDevice string, testNode string, numVfs int, resource
 	}, 10*time.Minute, time.Second).Should(Equal(int64(numVfs)))
 }
 
-func createTestPod(node string, networks []string) *k8sv1.Pod {
+func createUnschedulableTestPod(node string, networks []string, resourceName string) {
 	podDefinition := pod.RedefineWithNodeSelector(
 		pod.DefineWithNetworks(networks),
 		node,
 	)
 	createdPod, err := clients.Pods(namespaces.Test).Create(podDefinition)
+	Consistently(func() k8sv1.PodPhase {
+		runningPod, err := clients.Pods(namespaces.Test).Get(createdPod.Name, metav1.GetOptions{})
+		Expect(err).ToNot(HaveOccurred())
+		return runningPod.Status.Phase
+	}, 3*time.Minute, 1*time.Second).Should(Equal(k8sv1.PodPending))
+	pod, err := clients.Pods(namespaces.Test).Get(createdPod.Name, metav1.GetOptions{})
+	Expect(err).ToNot(HaveOccurred())
+	for _, condition := range pod.Status.Conditions {
+		if condition.Reason == "Unschedulable" && strings.Contains(condition.Message, "Insufficient openshift.io/"+resourceName) {
+			return
+		}
+	}
+	Fail("Pod should be Unschedulable due to: Insufficient openshift.io/" + resourceName)
+}
 
+func isPodConditionUnschedulable(pod *k8sv1.Pod, resourceName string) bool {
+	for _, condition := range pod.Status.Conditions {
+		if condition.Reason == "Unschedulable" && strings.Index(condition.Message, "Insufficient openshift.io/"+resourceName) != -1 {
+			return true
+		}
+	}
+	return false
+}
+
+func createTestPod(node string, networks []string) *k8sv1.Pod {
+	return createCustomTestPod(node, networks, false)
+}
+
+func createCustomTestPod(node string, networks []string, hostNetwork bool) *k8sv1.Pod {
+	var podDefinition *corev1.Pod
+	if hostNetwork {
+		podDefinition = pod.DefineWithHostNetwork(node)
+	} else {
+		podDefinition = pod.RedefineWithNodeSelector(
+			pod.DefineWithNetworks(networks),
+			node,
+		)
+	}
+	createdPod, err := clients.Pods(namespaces.Test).Create(podDefinition)
 	Eventually(func() k8sv1.PodPhase {
 		runningPod, err := clients.Pods(namespaces.Test).Get(createdPod.Name, metav1.GetOptions{})
 		Expect(err).ToNot(HaveOccurred())

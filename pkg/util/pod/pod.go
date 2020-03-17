@@ -48,6 +48,20 @@ func DefineWithHostNetwork(nodeName string) *corev1.Pod {
 	return podObject
 }
 
+// RedefineAsPrivileged uppdates the pod to be privileged
+func RedefineAsPrivileged(pod *corev1.Pod) *corev1.Pod {
+	pod.Spec.Containers[0].SecurityContext = &corev1.SecurityContext{}
+	b := true
+	pod.Spec.Containers[0].SecurityContext.Privileged = &b
+	return pod
+}
+
+// RedefineWithHostNetwork uppdates the pod definition Spec.HostNetwork to true
+func RedefineWithHostNetwork(pod *corev1.Pod) *corev1.Pod {
+	pod.Spec.HostNetwork = true
+	return pod
+}
+
 // RedefineWithNodeSelector uppdates the pod definition with a node selector
 func RedefineWithNodeSelector(pod *corev1.Pod, node string) *corev1.Pod {
 	pod.Spec.NodeSelector = map[string]string{
