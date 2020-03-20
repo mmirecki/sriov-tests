@@ -34,6 +34,7 @@ var _ = Describe("operator", func() {
 		err := namespaces.Create(namespaces.Test, clients)
 		Expect(err).ToNot(HaveOccurred())
 
+		waitForSRIOVStable()
 		sriovInfos, err = cluster.DiscoverSriov(clients, operatorNamespace)
 		Expect(err).ToNot(HaveOccurred())
 	})
@@ -688,6 +689,11 @@ var _ = Describe("operator", func() {
 				err = clients.Create(context.Background(), sriovNetwork)
 				Expect(err).ToNot(HaveOccurred())
 
+				Eventually(func() error {
+					netAttDef := &netattdefv1.NetworkAttachmentDefinition{}
+					return clients.Get(context.Background(), runtimeclient.ObjectKey{Name: "apivolnetwork", Namespace: namespaces.Test}, netAttDef)
+				}, 10*time.Second, 1*time.Second).ShouldNot(HaveOccurred())
+
 				podDefinition := pod.DefineWithNetworks([]string{sriovNetwork.Name})
 				created, err := clients.Pods(namespaces.Test).Create(podDefinition)
 				Expect(err).ToNot(HaveOccurred())
@@ -739,6 +745,11 @@ var _ = Describe("operator", func() {
 					ipam := `{"type": "host-local","ranges": [[{"subnet": "1.1.1.0/24"}]],"dataDir": "/run/my-orchestrator/container-ipam-state"}`
 					err = network.CreateSriovNetwork(clients, sriovDevice, sriovNetworkName, namespaces.Test, operatorNamespace, resourceName, ipam)
 					Expect(err).ToNot(HaveOccurred())
+					Eventually(func() error {
+						netAttDef := &netattdefv1.NetworkAttachmentDefinition{}
+						return clients.Get(context.Background(), runtimeclient.ObjectKey{Name: "sriovnetwork", Namespace: namespaces.Test}, netAttDef)
+					}, 10*time.Second, 1*time.Second).ShouldNot(HaveOccurred())
+
 					pod := createTestPod(testNode, []string{sriovNetworkName, sriovNetworkName})
 					nics, err := network.GetNicsByPrefix(pod, "net")
 					Expect(err).ToNot(HaveOccurred())
@@ -1116,6 +1127,8 @@ func createCustomTestPod(node string, networks []string, hostNetwork bool) *k8sv
 		)
 	}
 	createdPod, err := clients.Pods(namespaces.Test).Create(podDefinition)
+	Expect(err).ToNot(HaveOccurred())
+
 	Eventually(func() k8sv1.PodPhase {
 		runningPod, err := clients.Pods(namespaces.Test).Get(createdPod.Name, metav1.GetOptions{})
 		Expect(err).ToNot(HaveOccurred())
